@@ -11,5 +11,12 @@ nli_env/
 emb/
 preds/
 
+# Superseded / non-canonical experiment artifacts (kept locally, not published)
+# results.json            = old whole-validation "6-cell" results (no BERT); design the paper avoids
+# results_significance.json + significance_experiment.py = separate N-sweep; paper stats come from results_augmentation.json
+results.json
+results_significance.json
+significance_experiment.py
+
 # OS
 .DS_Store
