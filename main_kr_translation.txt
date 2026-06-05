@@ -1,0 +1,354 @@
+================================================================
+  어떤 데이터가 어떤 분류기에 맞는가?
+  한국어 NLI에서 모델별·도메인별 데이터 적합성을 위한
+  객체지향 테스트베드
+
+  (Which Data Fits Which Classifier? An Object-Oriented Testbed
+   for Model- and Domain-Specific Data Suitability on Korean NLI)
+
+  저자: 이다원 (Dawon Lee) · 건국대학교 컴퓨터공학부
+  이메일: rudaa1018@gmail.com
+
+  ※ 영문 논문(main_en.tex / main_kr.tex)의 한국어 대조본.
+================================================================
+
+
+────────────────────────────────────────────────────────────
+초록 (Abstract)
+────────────────────────────────────────────────────────────
+
+머신러닝 실무의 흔한 직관은, 분류기마다 그리고 데이터 도메인마다 서로
+다른 학습 데이터가 필요하다는 것이다. 본 연구는 이 직관을 한국어 자연어
+추론(NLI) 위에서 통제된 객체지향 실험으로 바꾼다. 세 분류기 — KNN,
+NumPy로 직접 구현한 신경망(NN), 파인튜닝 BERT — 를 하나의 Classifier
+추상 아래 치환 가능하게 구현하고, 짝을 이루는 Domain / TrainingStrategy
+추상으로 KLUE-NLI를 '목표 도메인 × 학습 전략'으로 만든다. 모델 효과로는
+BERT가 임베딩 기반 분류기를 크게 앞선다. 핵심 질문 — 목표 도메인에서
+잘하려면 그 도메인만 학습(targeted)할까, 전체 풀을 학습(broad)할까 — 은
+작은 in-domain 베이스라인을 targeted 또는 broad 데이터로 증강해 답한다:
+잘 대표된 목표에선 구성이 무의미하지만, 과소대표된 목표에선 in-domain
+증강이 예제당 더 데이터-효율적이나 희소 풀에 의해 상한이 정해지며, 그
+너머 일어나는 일은 모델 용량에 비례한다 — 천장 너머 broad(오프도메인)
+증강은 BERT를 +0.037 macro-F1 올리지만 KNN·NN은 ≈+0.004뿐이다. 한편
+정확도-매크로F1 격차는 정확도만으로는 가려지는 동작 차이를 드러낸다 —
+NN은 가장 쉬운 클래스로 붕괴해 정확도를 부풀린다. 모든 결과는 이 데이터
+한정으로 보고하며, 일반적 우월성은 주장하지 않는다.
+
+핵심어: 객체지향 설계, 자연어 추론, 한국어 NLP, k-최근접 이웃, 신경망,
+BERT, 데이터 적합성
+
+
+────────────────────────────────────────────────────────────
+1. 서론 (Introduction)
+────────────────────────────────────────────────────────────
+
+실무자들은 흔히 '올바른' 학습 데이터가 '무엇을' 학습시키는가에 달려
+있다고 가정한다 — 최근접 이웃, 작은 신경망, 대형 사전학습 트랜스포머가
+각기 다른 데이터에서 이득을 본다고, 한 모델도 도메인에 따라 다르게
+동작한다고. 이런 가정은 보통 비격식적으로만 언급된다. 본 논문은 이를
+통제된 실험의 대상으로 삼아, 객체지향(OO) 설계를 그 비교가 공정하도록
+유지하는 도구로 사용한다. 이 주제는 저자가 지향하는 '데이터 중심 한국어
+NLP'와 맞닿아 있다 — 거기서는 '주어진 모델에 어떤 데이터가 맞는가'가
+반복되는 실무적 물음이며, 비교를 깔끔한 OO 시스템으로 구축하는 것은
+과목 과제이자 그 연구 관심으로 가는 작은 걸음이다.
+
+대상은 한국어 NLI다 — 전제와 가설이 주어질 때, 가설이 전제에 대해
+함의(entailment)·중립(neutral)·모순(contradiction) 중 무엇인지 판정한다.
+KLUE-NLI는 각 예제에 출처(source)를 표기해 원칙적인 도메인 분할을
+가능하게 한다.
+
+기여 두 가지:
+
+(G1) 치환 가능한 분류기 계층. KNN, 직접 구현 NumPy 신경망, 파인튜닝
+     BERT를 하나의 추상 Classifier 인터페이스 아래 구현. 같은 계약을
+     만족(리스코프 치환 원칙, LSP)하고, 새 분류기는 실험 루프를 건드리지
+     않고 서브클래스로 추가(개방-폐쇄 원칙, OCP).
+
+(G2) 목표 × 전략 설계, 목표별 평가. Domain / TrainingStrategy 추상으로,
+     목표 도메인만 학습(targeted) vs 전체 학습(broad)이 '그 도메인에서'
+     나은지를, 목표의 test 슬라이스에서 동일 데이터량으로 비교. 전체셋
+     평가가 부르는 test-구성 아티팩트를 회피.
+
+(이와 더불어 전 구간에서 정확도가 아니라 매크로F1을 보고 — 정확도만으로는
+ 가려지는 NN의 클래스 붕괴를 드러냄. 단 위 두 기여를 뒷받침하는 방법론적
+ 선택일 뿐, 별도 기여로 세우지 않음.)
+
+[범위와 입장] 모든 정량 결과는 이 데이터·예산 한정으로 성립하며, 어떤
+모델이 일반적으로 낫다고 주장하지 않는다. 세 분류기는 '유비(analogy)'
+로서 생성형 시스템의 이질적 구성요소의 대리물 역할을 할 뿐, 동일하다고
+주장하지 않는다(유비일 뿐 동일성 아님). 유일한 진짜 기술적 다리는 BERT
+계열 문장 임베딩이 우리 KNN/NN 특징 공간과 현대 의미 매칭 파이프라인
+양쪽의 바탕이라는 점이다.
+
+
+────────────────────────────────────────────────────────────
+2. 관련 연구 (Related Work)
+────────────────────────────────────────────────────────────
+
+[객체지향 설계] 클래스 구조는 GoF의 전략 패턴과, 구체적으로 Lott &
+Phillips의 최근접 이웃 사례(Sample/TrainingData/Hyperparameter 분해)를
+문장쌍에 맞게 변형하고 단일 거리 규칙에서 추상 Classifier 계열로 일반화.
+
+[분류기] 서로 다른 시대·귀납편향에서 선택 — 사례 기반 최근접 이웃(Cover
+& Hart 1967), 오차 역전파 신경망(Rumelhart 외 1986; 순/역전파를 드러내려
+NumPy로 재구현), 종단간 파인튜닝 BERT(Devlin 외 2019). 임베딩 기반
+모델은 Sentence-BERT(Reimers & Gurevych 2019)로 인코딩. 평가 관행은
+scikit-learn 생태계(Pedregosa 외 2011)를 따르되 지표·신경망은 직접 구현.
+
+[한국어 NLI] KLUE-NLI(Park 외 2021). 예제별 출처 표기로 통제된 도메인
+분할이 가능.
+
+
+────────────────────────────────────────────────────────────
+3. 제안하는 객체지향 시스템 (Proposed OO System)
+────────────────────────────────────────────────────────────
+
+3.1 두 축: 모델과 데이터
+모델 축(KNN/NN/BERT)과 데이터 축. 먼저 단순 학습 분할(격식체 vs 통합)을
+전체 평가셋으로 읽어 함정 — 혼합 test셋으로 데이터 선택을 비교하면 목표가
+test 구성과 뒤섞임 — 을 드러낸 뒤, Domain/TrainingStrategy 추상으로
+데이터 축을 제대로 다뤄 '목표별' targeted vs broad를 비교한다. 두 불변식:
+모든 학습 풀은 라벨 균형 표본, 평가셋은 고정(목표별 슬라이스).
+
+3.2 클래스 구조
+데이터는 캡슐화된 NLISample(두 문장)과 라벨 붙은 KnownNLI로, 둘 다
+from_dict 팩토리로 생성되어 잘못된 입력에 커스텀 InvalidSampleError
+(ValueError 서브클래스, raise...from)를 던진다. 표현은 추상 Embedder,
+의미는 추상 Classifier가 담당. 각 구체 모델/임베딩은 서브클래스 추가.
+
+  [그림 1] UML 클래스 다이어그램
+  ──────────────────────────────────────────────────────────
+  NLISample (premise, hypothesis; from_dict)
+    +-- KnownNLI (+ label)            # 상속
+  InvalidSampleError(ValueError)      # 커스텀 예외
+
+  Embedder (ABC)  fit/embed/embed_pair/dim       # 표현 전략
+    +-- SBERTEmbedder   φ=[u; v; |u-v|; u⊙v]
+  Classifier (ABC)  fit/predict/predict_many     # 의미 전략
+    +-- KNNClassifier  (코사인 k-NN, @property k)
+    +-- NNClassifier   (NumPy 순/역전파, He, ReLU, softmax)
+    +-- BertClassifier (klue/bert-base, 원시 텍스트)
+  데이터 흐름 비대칭: KNN/NN은 NLISample→Embedder(φ)→Classifier,
+                      BERT는 NLISample→Classifier (임베더 없음).
+  ──────────────────────────────────────────────────────────
+
+설계 요지: (1) 실험 구동부가 모델에 무관 — 같은 fit/predict_many 호출,
+입력 표현만 다름(KNN/NN은 임베딩, BERT는 텍스트). 이것이 LSP의 실제
+작동. (2) Embedder와 Classifier 분리(표현 vs 결정) — 새 전략은 서브클래스
+추가뿐(OCP).
+
+  [표 1] 객체지향 메커니즘과 실현 위치
+  캡슐화: NLISample이 두 문장 저장·검증
+  상속: KnownNLI→NLISample; 세 분류기→Classifier; SBERTEmbedder→Embedder
+  추상화: Embedder, Classifier (ABC, 계약만)
+  다형성(전략): 구동부가 임의 Classifier에 predict_many 호출
+  팩토리: from_dict
+  커스텀 예외: InvalidSampleError(ValueError), raise...from
+  프로퍼티: KNNClassifier의 @property k + 검증 setter
+  LSP / OCP: 치환 가능 / 새 모델·임베딩 = 새 서브클래스
+
+3.3 임베딩 계층 (KNN/NN)
+SBERTEmbedder가 전제 u, 가설 v를 한국어 SBERT로 인코딩 후
+φ(u,v)=[u; v; |u-v|; u⊙v]로 결합(768×4=3072차원).
+
+3.4 NumPy 신경망
+1-은닉층, 순/역전파 직접 구현. 입력 표준화, He 초기화, ReLU+softmax,
+교차엔트로피. 기울기:
+   δ2=(P-Y)/m,  ∇W2=a1ᵀδ2+λW2
+   δ1=(δ2 W2ᵀ)⊙1[z1>0],  ∇W1=Xᵀδ1+λW1
+모멘텀 SGD. 학습의 '구현 자체'를 OO 설계 안에 둔다.
+
+  [코드 1] 추상 Classifier + NNClassifier 역전파
+    class Classifier(ABC):
+        @abstractmethod
+        def fit(self, X, y): ...
+        @abstractmethod
+        def predict_many(self, X): ...
+        def predict(self, x):
+            return int(self.predict_many(x[None])[0])
+    class NNClassifier(Classifier):
+        def _backward(self, xb, yb, z1, a1, p, m):
+            dz2 = (p - yb) / m                    # softmax+CE
+            dW2 = a1.T @ dz2 + self.l2 * self.W2
+            dz1 = (dz2 @ self.W2.T) * (z1 > 0)    # ReLU
+            dW1 = xb.T @ dz1 + self.l2 * self.W1
+            return dW1, dW2
+
+3.5 BERT 분류기 (자체 표현)
+세 번째 Classifier이지만 종류가 다르다 — SBERT 임베딩을 소비하지 않고
+원시 전제-가설을 토크나이즈해 klue/bert-base를 종단간 파인튜닝, 자기
+표현을 학습하고 두 문장의 토큰 상호작용을 셀프어텐션으로 모델링. 같은
+추상 아래 KNN/NN은 외부 표현에 의존, BERT는 표현을 학습 — '각 모델이 보는
+데이터'가 같은 종류의 객체가 아님을 보임.
+
+3.6 Domain / TrainingStrategy 추상
+Domain은 소스 집합으로, 학습 풀이자 동시에 test 슬라이스(test_mask).
+FormalDomain·ColloquialDomain은 구체 도메인, UniverseDomain은 전체.
+TrainingStrategy는 목표가 주어지면 어느 풀로 학습할지 결정(전략 패턴):
+TargetedStrategy=목표 자신, BroadStrategy=전체. '목표×전략' 실험은 두
+도메인을 두 전략에 돌리는 것이며, 올바른 test 슬라이스는 목표 도메인이
+자동 선택.
+
+  [코드 2] Domain / TrainingStrategy
+    class Domain(ABC):
+        @abstractmethod
+        def contains(self, source): ...
+        def test_mask(self, sources):
+            return np.array([self.contains(s) for s in sources])
+    class TrainingStrategy(ABC):
+        @abstractmethod
+        def pool(self, target): ...
+    class TargetedStrategy(TrainingStrategy):
+        def pool(self, target): return target          # in-domain
+    class BroadStrategy(TrainingStrategy):
+        def pool(self, target): return self.universe   # 전체
+
+
+────────────────────────────────────────────────────────────
+4. 실험 설정 (Experimental Setup)
+────────────────────────────────────────────────────────────
+
+[데이터와 도메인] KLUE-NLI: train 24,998 / val 3,000(함의/중립/모순).
+격식체(formal)={wikipedia,wikinews,wikitree,policy}, 구어체(colloquial)=
+{NSMC 영화리뷰, airbnb 숙소리뷰}, 통합(combined)=전체(broad 전략 풀).
+val도 출처가 있어 각 도메인이 test 슬라이스를 정의 — 격식체 1,800 /
+구어체 1,200.
+
+[목표와 전략] 각 목표는 작은 2,000건 in-domain 베이스라인에서 시작해
+'증강'한다 — targeted(in-domain) 또는 broad(전체)에서 같은 양 추가, 목표
+의 test 슬라이스에서 시드 8개로 평가. 증강 크기를 2,000→14,000으로
+스윕해 데이터-효율 곡선을 그린다. 단 targeted 증강은 목표 in-domain 풀에
+막혀, 구어체 targeted는 풀(≈9,000건) 고갈로 마지막 가능 체크포인트가
+≈8,000이고, 격식체(풀 ≈15,000)·모든 broad arm은 14,000까지 이어진다.
+
+[테스트 누수 없는 튜닝] KNN의 k, NN의 에폭은 학습셋 내부 dev에서만 선정.
+
+[구현] Apple M3(MPS). KNN/NN은 한국어 SBERT(jhgan/ko-sroberta-multitask),
+BERT는 klue/bert-base. SBERT는 KLUE-NLI로 튜닝되지 않은 범용 모델을 의도
+선택(임베딩 기반 분류기 과대평가 방지). 거리·신경망·모든 지표 직접 구현.
+
+
+────────────────────────────────────────────────────────────
+5. 구현 및 결과 (Implementation and Results)
+────────────────────────────────────────────────────────────
+
+5.1 사용법
+전체 계층을 동일한 두 메서드로 구동, 표현만 다름.
+  [코드 3] 통일 인터페이스 구동
+    knn  = KNNClassifier(k).fit(X_tr, y_tr)      # 임베딩
+    nn   = NNClassifier(ep).fit(X_tr, y_tr)      # 임베딩
+    bert = BertClassifier().fit(samples, y_tr)   # 원시 텍스트
+    for clf, X in [(knn, X_val), (nn, X_val), (bert, val_samples)]:
+        acc, f1 = evaluate(y_val, clf.predict_many(X))
+
+5.2 결과: 저데이터 베이스라인 증강
+각 목표를 작은 2,000건 in-domain 베이스라인에서 시작해 증강한다. 같은
+크기에서 추가 예제를 목표 풀(targeted) 또는 전체 풀(broad)에서 뽑되, 두
+arm이 같은 베이스라인·같은 추가량을 공유 → 증강 '구성'만 다름. 목표
+슬라이스에서 시드 8개 평가. (그림 2, KNN)
+
+  [그림 2] 2,000 베이스라인에서의 가산 증강 (KNN, 시드 8개, macro-F1)
+  ──────────────────────────────────────────────────────────
+   목표=격식체(풍부)        목표=구어체(희소)
+   total  targeted broad    total  targeted broad
+    2000   .439   .439       2000   .527   .527
+    6000   .452   .451       6000  [.554]  .544
+    8000   .464   .462       8000   .551   .546
+   10000   .467   .466      10000   —(고갈) .545
+   12000   .473   .468      12000   —(고갈) .549
+   14000   .479   .477      14000   —(고갈) .550
+  ──────────────────────────────────────────────────────────
+
+발견 세 가지 (모두 arm당 시드 8개 2-표본 Welch t-검정, 크기별 평균·표준편차로
+계산, 유의 |t|>2.1, α≈.05):
+(i) 풍부한 도메인은 구성 무관 — 격식체 24개(크기×모델) 비교 중 22개 비유의.
+    명목상 유의한 둘(KNN@14k |t|=3.4, BERT@10k |t|=2.8)도 효과 ≤0.011 macro-F1,
+    Bonferroni 미통과, 방향 일관성 없음(KNN 그 점은 다른 7개 크기와 부호 반대).
+    α=.05·24검정이면 우연히 ~1.2개 유의 → 무효과와 구분 불가, 실무적 무시 가능.
+(ii) 희소 도메인은 같은 크기엔 in-domain이 더 효율적이나 임베딩 기반
+    모델에 한해서다 — 구어체 6,000서 targeted가 broad를 유의하게 앞서는
+    건 NN(+0.019, t=4.2)·KNN(+0.011, t=3.4)뿐이고, BERT는 +0.007(t=1.0)
+    로 시드 노이즈 이내(비유의). 이후 targeted는 ~9,000서 고갈.
+(iii) 그 너머 broad 이득은 모델 용량에 비례 — 표적 천장(8,000)→broad
+    14,000은 동일하게 +6,000건을 더하는 증분인데, 그 같은 증분이 BERT는
+    +0.037(0.733→0.770, t=4.1) 올리지만 KNN·NN은 각 +0.004(|t|<1)뿐.
+    증분이 모델 간 동일하므로 데이터량 효과가 아니라 용량(표현 학습) 효과다.
+    헤드룸(천장까지) 정규화 시 격차 더 뚜렷 — BERT는 남은 거리의 ~14%, KNN·NN ~1%.
+Bonferroni 보정(전 패밀리 ~40개 targeted-vs-broad, α≈.0013, |t|>4.0)에선 NN의
+같은-크기 우위(t=4.2)와 BERT 용량 격차(t=4.1)만 생존, KNN 같은-크기 우위(t=3.4)와
+격식체 두 고립점은 탈락. 유의 셀의 효과크기는 표준화 기준 큼
+(Cohen's d≈1.4~2.1)이나 절대값은 작음(1~2 macro-F1점, 시드 분산이 작은 덕).
+
+한 줄 요약: in-domain 증강은 저용량 모델에 한해 예제당 더 효율적이지만,
+오프도메인으로 증강해야 할 때 계속 이득을 보는 건 고용량 모델뿐이다.
+
+[정확도의 함정(보조 관찰)] NN은 이질적 데이터에서 가장 쉬운 함의
+클래스로 예측을 쏠려 정확도를 부풀리지만 매크로F1은 중립 클래스 붕괴를
+폭로 — 정확도≠매크로F1. KNN·BERT는 균형적.
+
+
+────────────────────────────────────────────────────────────
+6. 한계 (Limitations)
+────────────────────────────────────────────────────────────
+
+첫째, 모든 수치는 KLUE-NLI와 고정된 범용 문장 임베딩 한정 — 시드 8개와
+넓은 증강 크기를 스윕했으나 다중 데이터셋·인코더는 아니므로, 조건부
+결론(in-domain 증강이 과소대표 목표를 돕는다)은 외부 재현이 필요. 효과
+크기도 작음(1~2 macro-F1점), KNN에서 가장 뚜렷하고 NN은 방향은 같으나
+노이즈 큼. 둘째, 전제·가설을 한 벡터 φ로 합치면 BERT 같은 조인트 어텐션이
+잡는 토큰 상호작용 일부 손실 — 임베딩 기반 분류기의 구조적 불리. 셋째,
+LSP/OCP 증거는 설계 수준(같은 호출 지점, 서브클래스 추가)이지 정량적
+유지보수성 측정은 범위 밖.
+
+각 한계의 개선: φ를 크로스-인코더 Embedder로 대체(분류기 불변, OCP);
+시드·데이터셋 확장; 새 모델 추가 시 바뀐 코드 줄 수로 OCP 정량화.
+
+
+────────────────────────────────────────────────────────────
+7. 결론 (Conclusion)
+────────────────────────────────────────────────────────────
+
+세 분류기를 하나의 Classifier 추상 아래, 두 데이터 전략을 Domain/
+TrainingStrategy 아래 두고 한국어 NLI에서 비교했다. 작은 in-domain
+베이스라인을 증강하며 각 목표의 test 슬라이스로 평가한 결과, 풍부한
+목표에선 증강 구성이 실무적으로 무차이였고(명목상 유의한 소수 점은 노이즈
+수준·보정 미통과), 희소 목표에선 같은 크기의 in-domain(targeted) 우위가 작고
+저용량 모델(NN·KNN, BERT 아님)에 한정되며 그나마 희소 풀에 막혔다. 가장
+분명한 — 그리고 다중비교 보정 후 유일하게 살아남는 — 효과는 천장 너머에
+있었다: broad(오프도메인) 증강의 한계 이득이 모델 용량에 비례해, 고용량 BERT만
++0.037 macro-F1(남은 헤드룸의 ~14%)을 얻고 KNN·NN은 ≈+0.004에 그쳤다.
+정확도가 아니라 매크로F1·혼동행렬을 보고한 것이 이를 드러내는 데
+필수였다.
+
+더 넓은 동기는 데이터 '적합성'이다. 유비로서 — 오직 유비로서 — 이는
+생성형 멀티에이전트 시스템을 닮았다: 각 이질적 에이전트의 약점에 표적화된
+데이터로 증강할까, 공유 풀을 증강할까? 우리 결과는 소외된(과소대표)
+대상일수록 표적 증강이 값어치를 하지만 그 데이터는 양이 제한적이고 공유
+풀 증강은 그 대상엔 일찍 포화함을 시사한다(분류기는 그런 에이전트의
+proxy일 뿐, 유비이지 동일성 아님). 유일한 구체 기술 연결은 BERT 계열
+문장 임베딩이 우리 특징 공간과 현대 의미 매칭의 근간이라는 점. 더 많은
+시드·실제 합성 증강·진짜 에이전트별 약점으로의 확장은 향후 과제.
+
+[배운 점] 세 가지 OO 교훈. (1) 추상화가 제값을 함 — Classifier를 한 번
+정의하니 세 모델이 같은 평가 코드를 공유, 실험이 구동부 재작성 대신
+서브클래스 추가로 자람. (2) 추상의 '경계'가 교훈적 — KNN/NN은 Embedder를,
+BERT는 원시 텍스트를 소비하며, 공유 인터페이스가 호출 지점을 통일하되
+표현은 각자 필요한 것을 있는 그대로 받게 두는 것이 억지 통일보다 나은
+설계. (3) 작은 규율 — from_dict 팩토리 + 커스텀 예외가 잘못된 행을
+걸러내고, 역전파를 손으로 구현한 덕에 신경망이 블랙박스에서 추론·디버깅
+가능한 것으로 바뀜.
+
+
+────────────────────────────────────────────────────────────
+참고문헌 (상세는 refs.bib)
+────────────────────────────────────────────────────────────
+[1] Lott & Phillips, Python Object-Oriented Programming, 4th ed., 2021.
+[2] Gamma 외, Design Patterns, Addison-Wesley, 1994.
+[3] Rumelhart, Hinton & Williams, "Learning representations by
+    back-propagating errors", Nature, 1986.
+[4] Cover & Hart, "Nearest neighbor pattern classification", IEEE TIT, 1967.
+[5] Devlin 외, "BERT: ...", NAACL-HLT, 2019.
+[6] Reimers & Gurevych, "Sentence-BERT: ...", EMNLP-IJCNLP, 2019.
+[7] Park 외, "KLUE: Korean Language Understanding Evaluation",
+    NeurIPS Datasets and Benchmarks, 2021.
+[8] Pedregosa 외, "Scikit-learn: Machine Learning in Python", JMLR, 2011.

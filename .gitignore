@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environment (~1.2 GB)
+nli_env/
+
+# Large / regenerable artifacts
+# emb/   = SBERT embeddings (~539 MB, incl. 293 MB train_all_X.npy); regenerate from the notebook
+# preds/ = cached prediction vectors
+emb/
+preds/
+
+# OS
+.DS_Store
